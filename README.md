@@ -21,7 +21,9 @@ A Python script to extract and download videos from Wistia embeds.
 
 3. Press Enter twice to finish input.
 
-4. The script will extract the video ID, find the download URL, and download the video.
+4. Enter "go" to finish prompting for embeds and start the download.
+
+5. The script will extract the video ID, find the download URL, and download the video.
 
 Alternatively, use the shell script:
 ```bash
