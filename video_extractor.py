@@ -127,26 +127,39 @@ def download_file(url, filename, max_retries=3):
     return filepath
 
 
-def get_multiline_input():
-    """Get HTML content from user (paste and press Enter twice)"""
-    print("Paste the HTML content (press Enter twice when done):")
-    lines = []
-    empty_count = 0
-    
+def get_batch_html_inputs():
+    """Get multiple HTML content blocks from user until GO is entered."""
+    print("Paste HTML content blocks. Type GO on a single line when finished.")
+    print("Press Enter twice at the end of each HTML block.")
+    html_inputs = []
+
     while True:
-        try:
-            line = input()
-            if line == "":
-                empty_count += 1
-                if empty_count >= 2:
-                    break
-            else:
-                empty_count = 0
-                lines.append(line)
-        except EOFError:
+        first_line = input("HTML or GO: ")
+        if first_line.strip().upper() == "GO":
             break
-    
-    return "\n".join(lines)
+        if first_line.strip() == "":
+            continue
+
+        lines = [first_line]
+        empty_count = 0
+        while True:
+            try:
+                line = input()
+                if line == "":
+                    empty_count += 1
+                    if empty_count >= 2:
+                        break
+                else:
+                    empty_count = 0
+                    lines.append(line)
+            except EOFError:
+                break
+
+        html = "\n".join(lines)
+        if html.strip():
+            html_inputs.append(html)
+
+    return html_inputs
 
 
 def main():
@@ -155,70 +168,79 @@ def main():
     print("="*60 + "\n")
     
     try:
-        # Step 1: Get HTML input
-        html = get_multiline_input()
-        if not html.strip():
+        html_inputs = get_batch_html_inputs()
+        if not html_inputs:
             print("Error: No HTML content provided")
             return
-        
-        # Step 2: Extract video ID
-        print("\n[1/6] Extracting video ID from HTML...")
-        video_id = extract_video_id(html)
-        print(f"   ✓ Found video ID: {video_id}")
-        
-        # Step 3: Build Wistia embed URL
-        print("\n[2/6] Building Wistia embed URL...")
-        embed_url = get_embed_url(video_id)
-        print(f"   URL: {embed_url}")
-        
-        # Step 4: Download from embed URL
-        print("\n[3/6] Downloading Wistia embed page...")
-        for attempt in range(3):
+
+        success_count = 0
+        for index, html in enumerate(html_inputs, start=1):
+            print(f"\n=== Processing input {index}/{len(html_inputs)} ===")
             try:
-                response = requests.get(embed_url, timeout=15)
-                response.raise_for_status()
-                break
-            except requests.exceptions.RequestException as e:
-                if attempt < 2:
-                    print(f"   Embed download attempt {attempt + 1} failed: {e}. Retrying...")
-                    time.sleep(2)
+                # Step 2: Extract video ID
+                print("\n[1/6] Extracting video ID from HTML...")
+                video_id = extract_video_id(html)
+                print(f"   ✓ Found video ID: {video_id}")
+                
+                # Step 3: Build Wistia embed URL
+                print("\n[2/6] Building Wistia embed URL...")
+                embed_url = get_embed_url(video_id)
+                print(f"   URL: {embed_url}")
+                
+                # Step 4: Download from embed URL
+                print("\n[3/6] Downloading Wistia embed page...")
+                for attempt in range(3):
+                    try:
+                        response = requests.get(embed_url, timeout=15)
+                        response.raise_for_status()
+                        break
+                    except requests.exceptions.RequestException as e:
+                        if attempt < 2:
+                            print(f"   Embed download attempt {attempt + 1} failed: {e}. Retrying...")
+                            time.sleep(2)
+                        else:
+                            raise Exception(f"Failed to download embed URL after 3 attempts: {e}")
+                
+                embed_content = response.text
+                print("   ✓ Embed page downloaded")
+                
+                # Step 5: Find .bin URL and convert to .mp4
+                print("\n[4/6] Searching for .bin URL in embed content...")
+                mp4_url = find_bin_url(embed_content)
+                print(f"   ✓ Found video URL")
+                print(f"   Original: {mp4_url.replace('.mp4', '.bin')}")
+                print(f"   Modified: {mp4_url}")
+                
+                # Step 6: Derive filename from original HTML input if possible
+                print("\n[5/6] Determining filename from input...")
+                filename = extract_filename(html)
+                if filename:
+                    print(f"   ✓ Derived filename: {filename}.mp4")
                 else:
-                    raise Exception(f"Failed to download embed URL after 3 attempts: {e}")
-        
-        embed_content = response.text
-        print("   ✓ Embed page downloaded")
-        
-        # Step 5: Find .bin URL and convert to .mp4
-        print("\n[4/6] Searching for .bin URL in embed content...")
-        mp4_url = find_bin_url(embed_content)
-        print(f"   ✓ Found video URL")
-        print(f"   Original: {mp4_url.replace('.mp4', '.bin')}")
-        print(f"   Modified: {mp4_url}")
-        
-        # Step 6: Derive filename from original HTML input if possible
-        print("\n[5/6] Determining filename from input...")
-        filename = extract_filename(html)
-        if filename:
-            print(f"   ✓ Derived filename: {filename}.mp4")
-        else:
-            filename = "video"
-            print(f"   ✓ No filename found in input, defaulting to: {filename}.mp4")
+                    filename = "video"
+                    print(f"   ✓ No filename found in input, defaulting to: {filename}.mp4")
 
-        original_filename = filename
-        filename = get_unique_filename(filename)
-        if filename != original_filename:
-            print(f"   ✓ Adjusted to avoid overwrite: {filename}.mp4")
-        else:
-            print(f"   ✓ Final filename: {filename}.mp4")
+                original_filename = filename
+                filename = get_unique_filename(filename)
+                if filename != original_filename:
+                    print(f"   ✓ Adjusted to avoid overwrite: {filename}.mp4")
+                else:
+                    print(f"   ✓ Final filename: {filename}.mp4")
 
-        # Step 7: Download final file
-        print("\n[6/6] Downloading video file...")
-        download_file(mp4_url, filename)
-        
+                # Step 7: Download final file
+                print("\n[6/6] Downloading video file...")
+                download_file(mp4_url, filename)
+                success_count += 1
+            except Exception as e:
+                print(f"\n✗ Error processing input {index}: {e}")
+                continue
+
         print("\n" + "="*60)
-        print("✓ All steps completed successfully!")
+        print(f"✓ Completed {success_count} of {len(html_inputs)} downloads")
         print("="*60 + "\n")
-        
+
+        if success_count == 0:
+            return 1
     except ValueError as e:
         print(f"\n✗ Error: {e}")
         return 1
